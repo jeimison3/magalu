@@ -10,6 +10,8 @@ from selenium.common.exceptions import TimeoutException
 import re
 import urllib.parse
 
+import traceback
+
 import csv
 
 
@@ -29,7 +31,14 @@ def limpar(inp):
 
 def parsing(tag, cep, ignore_list):
     chrome_options = Options()
-    #chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--window-size=1400x1080")
+    chrome_options.add_argument("--mute-audio")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-gpu')
     driver = webdriver.Chrome(executable_path="chromedriver.exe", options=chrome_options)
     try:
         driver.get("https://www.magazineluiza.com.br/busca/%s/?itens=200" % (urllib.parse.quote(str(tag))) )
@@ -47,12 +56,11 @@ def parsing(tag, cep, ignore_list):
 
 
         if all_products:
-            print("Aguarde enquanto a busca é feita !")
             for i in all_products:
                 if i.get_attribute('href') not in ignore_list:
                     produtos.append(i.get_attribute('href'))
-
-            for acesso in produtos:
+            print("Lista preparada. Testando valores.")
+            for idx, acesso in enumerate(produtos):
                 driver.get(acesso) # Acessa
 
                 delay = 5 # seconds
@@ -63,6 +71,7 @@ def parsing(tag, cep, ignore_list):
                         myElem.send_keys(Keys.ENTER) # Testa frete
                     except Exception as e:
                         pass
+                    print("=> %d de %d: OK" % (idx+1, len(produtos)))
                         
                     
 
@@ -75,6 +84,7 @@ def parsing(tag, cep, ignore_list):
                             titulo_frete = ""
                             valor_frete = ""
                             prazo_frete = ""
+                            indisponivel = False
                             
                             for j in i.find_elements_by_xpath(".//span[@class='freight-product__box-item-delivery-type-text']"):
                                 titulo_frete = j.text
@@ -84,11 +94,15 @@ def parsing(tag, cep, ignore_list):
                             
                             for j in i.find_elements_by_xpath(".//span[@class='freight-product__freight-text-price']"):
                                 valor_frete = j.text
+
+                            for j in i.find_elements_by_xpath(".//span[@class='freight-product__box-item-unavailable']"):
+                                indisponivel = True
+
                             if valor_frete == "":
                                 for j in i.find_elements_by_xpath(".//span[@class='js-freight-price']"):
                                     valor_frete = j.text
                             
-                            fretes.append( [titulo_frete, prazo_frete, valor_frete] )
+                            fretes.append( [titulo_frete, prazo_frete, valor_frete, indisponivel] )
                             
                     
                     
@@ -105,18 +119,22 @@ def parsing(tag, cep, ignore_list):
                         with open('links.csv', 'a', encoding="utf-8") as arquivo:
                             if len(fretes):
                                 for f in fretes:
-                                    valor = 0.0 if f[2] == "Frete grátis" else float(re.findall( r"[-+]?\d*\.\d+|\d+", str(f[2]).replace(",",".") )[0] )
-                                    moeda = "R$"
-                                    if valor > 0:
-                                        moeda = str(f[2]).split(" ")[0]
-                                    arquivo.writelines("{},{},{},{},{},{},{},{}\n".format(acesso, limpar(titu_product), limpar(moeda), limpar(uniq), limpar(f[0]), limpar(f[1]), limpar(moeda), valor))
+                                    if not f[3]: # Não indisponível
+                                        #print("f=",f)
+                                        valor = 0.0 if (f[0] == "Retirar na loja" or f[2] == "Frete grátis") else float(re.findall( r"[-+]?\d*\.\d+|\d+", str(f[2]).replace(",",".") )[0] )
+                                        moeda = "R$"
+                                        if valor > 0:
+                                            moeda = str(f[2]).split(" ")[0]
+                                        arquivo.writelines("{},{},{},{},{},{},{},{}\n".format(acesso, limpar(titu_product), limpar(moeda), limpar(uniq), limpar(f[0]), limpar(f[1]), limpar(moeda), valor))
                             else:
                                 arquivo.writelines("{},{},{},{},,,,\n".format(acesso, limpar(titu_product), limpar(moeda), limpar(uniq)))
                             #arquivo.writelines("Produto: {} Valor:{} Link:{} Fretes: {} \n".format(titu_product, uniq, acesso, fretes))
 
                 except Exception as e:
-                    print(e)
-                    print("Pulando item. Problema identificado (TIMEOUT/SEM CEP).")
+                    traceback.print_exc()
+                    #print("Pulando item. Problema identificado (TIMEOUT/SEM CEP).")
+                    print("Problema em: %s" % (acesso))
+                    print("=> %d de %d: FAIL -> TIMEOUT/CRASH" % (idx+1, len(produtos)))
 
         else:
             print("Nada foi encontrado :(")
