@@ -1,5 +1,14 @@
-# Robô Magalu
+# MagaluFreteFinder
+Script busca produtos, inclui o custo do frete e gera um CSV com o valor final de cada respectivo item.
 
-Script busca os produtos de seu interesse e faz o envio no seu email
+# ChromeDriver
+Utilize o ChromeDriver correto para seu navegador e SO.
 
-![hackerman](https://user-images.githubusercontent.com/40581580/86523236-ce34b800-be3f-11ea-9dfc-3e7620c9230e.jpg)
+Deixe o binário na pasta local ou disponível via path.
+
+Disponível [neste site](https://chromedriver.chromium.org/downloads).
+
+Atualize o valor do parâmetro `executable_path` no arquivo `.py`.
+
+## Cabeçalho do CSV
+link, titulo, moeda, valor_unit, titulo_frete, prazo_frete, moeda_frete, valor_frete

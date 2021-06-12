@@ -2,6 +2,17 @@ from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+
+import re
+import urllib.parse
+
+import csv
+
+
 import smtplib
 
 from email.mime.multipart import MIMEMultipart
@@ -12,22 +23,25 @@ from email import encoders
 
 
 import time
-def parsing(tag):
+
+def limpar(inp):
+    return (" ".join(str(inp).replace(","," ").splitlines())).strip()
+
+def parsing(tag, cep, ignore_list):
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    #chrome_options.add_argument("--headless")
     driver = webdriver.Chrome(executable_path="chromedriver.exe", options=chrome_options)
     try:
-        driver.get("https://www.magazineluiza.com.br/")
-        testando = str(tag)
-        time.sleep(5)
-        buscar = driver.find_element_by_id("inpHeaderSearch").send_keys(testando)
+        driver.get("https://www.magazineluiza.com.br/busca/%s/?itens=200" % (urllib.parse.quote(str(tag))) )
+        #time.sleep(10)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'product')))
 
+        #buscar = driver.find_element_by_id("inpHeaderSearch").send_keys(testando)
 
-        driver.find_element_by_id("inpHeaderSearch").send_keys(Keys.ENTER)
-        time.sleep(10)
-        paginacao = driver.current_url
-        varios = (paginacao + "&results_per_page=200")
-        driver.get(varios)
+        #driver.find_element_by_id("inpHeaderSearch").send_keys(Keys.ENTER)
+        #paginacao = driver.current_url
+        #varios = (paginacao + "?")
+        #driver.get(varios)
         all_products = driver.find_elements_by_class_name("product-li")
         produtos = []
 
@@ -35,21 +49,74 @@ def parsing(tag):
         if all_products:
             print("Aguarde enquanto a busca é feita !")
             for i in all_products:
-
-                produtos.append(i.get_attribute('href'))
+                if i.get_attribute('href') not in ignore_list:
+                    produtos.append(i.get_attribute('href'))
 
             for acesso in produtos:
-                driver.get(acesso)
-                titulo = driver.find_elements_by_xpath("//h1[@class='header-product__title']")
-                for i in titulo:
-                    titu_product = (i.text)
+                driver.get(acesso) # Acessa
 
-                for price in driver.find_elements_by_xpath("//span[@class='price-template__text']"):
-                    uniq = (price.text)
+                delay = 5 # seconds
+                try:
+                    myElem = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.CLASS_NAME, 'input__zipcode')))
+                    try:
+                        myElem.send_keys(cep)
+                        myElem.send_keys(Keys.ENTER) # Testa frete
+                    except Exception as e:
+                        pass
+                        
+                    
 
-                    with open('links.csv', 'a') as arquivo:
-                        time.sleep(5)
-                        arquivo.writelines("Produto: {} Valor:{} Link:{} \n".format(titu_product, uniq, acesso))
+                    myTable = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.CLASS_NAME, 'freight-product__table')))
+                    all_fretes = driver.find_elements_by_class_name("freight-product__box-info")
+                    fretes = []
+                    
+                    if all_fretes:
+                        for i in all_fretes:
+                            titulo_frete = ""
+                            valor_frete = ""
+                            prazo_frete = ""
+                            
+                            for j in i.find_elements_by_xpath(".//span[@class='freight-product__box-item-delivery-type-text']"):
+                                titulo_frete = j.text
+                            
+                            for j in i.find_elements_by_xpath(".//span[@class='freight-product__box-item-delivery-days-text']"):
+                                prazo_frete = j.text
+                            
+                            for j in i.find_elements_by_xpath(".//span[@class='freight-product__freight-text-price']"):
+                                valor_frete = j.text
+                            if valor_frete == "":
+                                for j in i.find_elements_by_xpath(".//span[@class='js-freight-price']"):
+                                    valor_frete = j.text
+                            
+                            fretes.append( [titulo_frete, prazo_frete, valor_frete] )
+                            
+                    
+                    
+                    titulo = driver.find_elements_by_xpath("//h1[@class='header-product__title']")
+                    for i in titulo:
+                        titu_product = (i.text)
+
+                    for bold in driver.find_elements_by_xpath("//span[@class='price-template__text']"):
+                        moeda = (bold.text)
+
+                    for price in driver.find_elements_by_xpath("//span[@class='price-template__text']"):
+                        uniq = float(re.findall( r"[-+]?\d*\.\d+|\d+", str(price.text).replace(",",".") )[0] )
+
+                        with open('links.csv', 'a', encoding="utf-8") as arquivo:
+                            if len(fretes):
+                                for f in fretes:
+                                    valor = 0.0 if f[2] == "Frete grátis" else float(re.findall( r"[-+]?\d*\.\d+|\d+", str(f[2]).replace(",",".") )[0] )
+                                    moeda = "R$"
+                                    if valor > 0:
+                                        moeda = str(f[2]).split(" ")[0]
+                                    arquivo.writelines("{},{},{},{},{},{},{},{}\n".format(acesso, limpar(titu_product), limpar(moeda), limpar(uniq), limpar(f[0]), limpar(f[1]), limpar(moeda), valor))
+                            else:
+                                arquivo.writelines("{},{},{},{},,,,\n".format(acesso, limpar(titu_product), limpar(moeda), limpar(uniq)))
+                            #arquivo.writelines("Produto: {} Valor:{} Link:{} Fretes: {} \n".format(titu_product, uniq, acesso, fretes))
+
+                except Exception as e:
+                    print(e)
+                    print("Pulando item. Problema identificado (TIMEOUT/SEM CEP).")
 
         else:
             print("Nada foi encontrado :(")
@@ -57,43 +124,14 @@ def parsing(tag):
         print("OPS, houve algum erro na busca !")
 
 
-
-def enviar():
-    try:
-        fromaddr = "EMAIL ORIGEM"
-        toaddr = 'EMAIL DESTINO'
-        msg = MIMEMultipart()
-
-        msg['From'] = fromaddr
-        msg['To'] = toaddr
-        msg['Subject'] = "Suas Buscas estão prontas"
-
-        body = "\nOlá, seu robô de busca enviou o arquivo com todos os links encontrados !"
-
-        msg.attach(MIMEText(body, 'plain'))
-
-        filename = 'links.csv'
-
-        attachment = open('links.csv', 'rb')
-
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload((attachment).read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', "attachment; filename= %s" % filename)
-
-        msg.attach(part)
-
-        attachment.close()
-
-        server = smtplib.SMTP('smtp.PROVEDOR.com', 587)
-        server.starttls()
-        server.login(fromaddr, "DIGITE AQUI SUA SENHA")
-        text = msg.as_string()
-        server.sendmail(fromaddr, toaddr, text)
-        server.quit()
-        print('\nEmail enviado com sucesso!')
-    except:
-        print("\nErro ao enviar email")
+def get_acessados():
+    links = []
+    with open('links.csv', encoding="utf-8") as csvfile:
+        spamreader = csv.reader(csvfile)
+        for row in spamreader:
+            links.append(row[0])
+            #print(row)
+    return links
 
 def menu():
     print('''
@@ -102,7 +140,8 @@ def menu():
  | |\/| |  / _` |  / _` |  / _` | | | | | | |
  | |  | | | (_| | | (_| | | (_| | | | | |_| |
  |_|  |_|  \__,_|  \__, | t \__,_| |_|  \__,_|
-                   |___/             1.0 beta
+                   |___/             1.1 beta
+    edit by jeimison3
                    
     ''')
 
@@ -110,6 +149,7 @@ def menu():
 
 
 menu()
+conhecidos = get_acessados()
 item = input("Qual produto deseja buscar?: ")
-parsing(item)
-enviar()
+cep = input("Qual CEP usar?: ")
+parsing(item, cep, conhecidos)
