@@ -126,11 +126,13 @@ def parsing(tag, cep, ignore_list):
 
 def get_acessados():
     links = []
-    with open('links.csv', encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile)
-        for row in spamreader:
-            links.append(row[0])
-            #print(row)
+    try:
+        with open('links.csv', encoding="utf-8") as csvfile:
+            spamreader = csv.reader(csvfile)
+            for row in spamreader:
+                links.append(row[0])
+    except IOError:
+        pass
     return links
 
 def menu():
